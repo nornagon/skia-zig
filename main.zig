@@ -10,6 +10,7 @@ const skia = @cImport({
   @cInclude("skia/include/c/sk_paint.h");
   @cInclude("skia/include/c/sk_image.h");
   @cInclude("skia/include/c/sk_data.h");
+  @cInclude("skia/include/c/sk_path.h");
 });
 
 pub fn main() !void {
@@ -19,7 +20,7 @@ pub fn main() !void {
 //  const window = glfw.glfwCreateWindow(640, 480, c"Hello World", null, null)
 //      orelse return error.GlfwCreateWindowFailed;
 
-  const allocator = std.heap.c_allocator;
+  //const allocator = std.heap.c_allocator;
 
   const imageinfo = skia.sk_imageinfo_t {
     .width = 640,
@@ -28,21 +29,57 @@ pub fn main() !void {
     .alphaType = @intToEnum(skia.sk_alphatype_t, skia.PREMUL_SK_ALPHATYPE),
     .colorspace = null,
   };
-  const surface = skia.sk_surface_new_raster(@ptrCast([*] const
-  skia.sk_imageinfo_t, &imageinfo), 0, null) orelse return
-  error.SkiaCreateSurfaceFailed;
+  const surface = skia.sk_surface_new_raster(
+      @ptrCast([*]const skia.sk_imageinfo_t, &imageinfo),
+      0,
+      null
+  ) orelse return error.SkiaCreateSurfaceFailed;
   defer skia.sk_surface_unref(surface);
-  const canvas = skia.sk_surface_get_canvas(surface) orelse return error.SkiaSurfaceFailed;
-  draw(canvas);
+  const canvas = skia.sk_surface_get_canvas(surface)
+      orelse return error.SkiaSurfaceFailed;
+  try draw(canvas);
 
   try writePng("out.png", surface);
 }
 
-fn draw(canvas: *skia.sk_canvas_t) void {
+fn draw(canvas: *skia.sk_canvas_t) !void {
   const fill = skia.sk_paint_new() orelse return error.SkiaNewPaintFailed;
   defer skia.sk_paint_delete(fill);
   skia.sk_paint_set_color(fill, 0xff0000ff);
   skia.sk_canvas_draw_paint(canvas, fill);
+
+  skia.sk_paint_set_color(fill, 0xff00ffff);
+  const rect = skia.sk_rect_t {
+    .left = 100,
+    .top = 100,
+    .right = 540,
+    .bottom = 380,
+  };
+  skia.sk_canvas_draw_rect(canvas, @ptrCast([*]const skia.sk_rect_t, &rect), fill);
+
+  const stroke = skia.sk_paint_new() orelse return error.SkiaNewPaintFailed;
+  defer skia.sk_paint_delete(stroke);
+  skia.sk_paint_set_color(stroke, 0xffff0000);
+  skia.sk_paint_set_antialias(stroke, true);
+  skia.sk_paint_set_style(stroke, @intToEnum(skia.sk_paint_style_t, skia.STROKE_SK_PAINT_STYLE));
+  skia.sk_paint_set_stroke_width(stroke, 5.0);
+
+  const path = skia.sk_path_new() orelse return error.SkiaNewPathFailed;
+  defer skia.sk_path_delete(path);
+  skia.sk_path_move_to(path, 50.0, 50.0);
+  skia.sk_path_line_to(path, 590.0, 50.0);
+  skia.sk_path_cubic_to(path, -490.0, 50.0, 1130.0, 430.0, 50.0, 430.0);
+  skia.sk_path_line_to(path, 590.0, 430.0);
+  skia.sk_canvas_draw_path(canvas, path, stroke);
+
+  skia.sk_paint_set_color(fill, 0x8000ff00);
+  const rect2 = skia.sk_rect_t {
+    .left = 120,
+    .top = 120,
+    .right = 520,
+    .bottom = 360,
+  };
+  skia.sk_canvas_draw_oval(canvas, @ptrCast([*]const skia.sk_rect_t, &rect2), fill);
 }
 
 fn writePng(path: []const u8, surface: *skia.sk_surface_t) !void {
