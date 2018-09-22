@@ -4,42 +4,102 @@ const glfw = @cImport({
   @cInclude("GLFW/glfw3.h");
 });
 
-const skia = @cImport({
-  @cInclude("skia/include/c/sk_surface.h");
-  @cInclude("skia/include/c/sk_canvas.h");
-  @cInclude("skia/include/c/sk_paint.h");
-  @cInclude("skia/include/c/sk_image.h");
-  @cInclude("skia/include/c/sk_data.h");
-  @cInclude("skia/include/c/sk_path.h");
+const gl = @cImport({
+  @cInclude("OpenGL/gl.h");
 });
 
+const skia = @cImport({
+  @cInclude("skia/include/c/gr_context.h");
+  @cInclude("skia/include/c/sk_canvas.h");
+  @cInclude("skia/include/c/sk_colorspace.h");
+  @cInclude("skia/include/c/sk_data.h");
+  @cInclude("skia/include/c/sk_image.h");
+  @cInclude("skia/include/c/sk_paint.h");
+  @cInclude("skia/include/c/sk_path.h");
+  @cInclude("skia/include/c/sk_surface.h");
+});
+
+extern fn errorCallback(code: c_int, err: ?[*]const u8) void {
+  std.debug.warn("GLFW error 0x{x}: {s}\n", code, err);
+}
+
+fn ptr(p: var) t: {
+    const info = @typeInfo(@typeOf(p)).Pointer;
+    break :t if (info.is_const) ?[*]const info.child else ?[*]info.child;
+} {
+    const ReturnType = t: {
+        const info = @typeInfo(@typeOf(p)).Pointer;
+        break :t if (info.is_const) ?[*]const info.child else ?[*]info.child;
+    };
+    return @ptrCast(ReturnType, p);
+}
+
 pub fn main() !void {
-//  if (glfw.glfwInit() == 0) return error.GlfwInitFailed;
-//  defer glfw.glfwTerminate();
+  if (glfw.glfwInit() == 0) return error.GlfwInitFailed;
+  defer glfw.glfwTerminate();
 
-//  const window = glfw.glfwCreateWindow(640, 480, c"Hello World", null, null)
-//      orelse return error.GlfwCreateWindowFailed;
+  _ = glfw.glfwSetErrorCallback(errorCallback);
 
-  //const allocator = std.heap.c_allocator;
+  glfw.glfwWindowHint(glfw.GLFW_DOUBLEBUFFER, 1);
+  const window = glfw.glfwCreateWindow(640, 480, c"Hello World", null, null)
+      orelse return error.GlfwCreateWindowFailed;
+  glfw.glfwMakeContextCurrent(window);
+  glfw.glfwSwapInterval(1);
 
-  const imageinfo = skia.sk_imageinfo_t {
-    .width = 640,
-    .height = 480,
-    .colorType = skia.sk_colortype_get_default_8888(),
-    .alphaType = @intToEnum(skia.sk_alphatype_t, skia.PREMUL_SK_ALPHATYPE),
-    .colorspace = null,
+  var width: c_int = 0;
+  var height: c_int = 0;
+  glfw.glfwGetFramebufferSize(window, ptr(&width), ptr(&height));
+
+  const gr_glinterface = skia.gr_glinterface_create_native_interface();
+  defer skia.gr_glinterface_unref(gr_glinterface);
+  const gr_context = skia.gr_context_make_gl(gr_glinterface)
+      orelse return error.SkiaGrContextError;
+  defer skia.gr_context_unref(gr_context);
+
+  var fbo: i32 = 0;
+  gl.glGetIntegerv(gl.GL_FRAMEBUFFER_BINDING, ptr(&fbo));
+  var samples: i32 = 0;
+  var stencil_bits: i32 = 0;
+  gl.glGetIntegerv(gl.GL_SAMPLES, ptr(&samples));
+  gl.glGetIntegerv(gl.GL_STENCIL_BITS, ptr(&stencil_bits));
+
+  const gl_info = skia.gr_gl_framebufferinfo_t {
+    .fFBOID = @intCast(c_uint, fbo),
+    .fFormat = 0x8058,
   };
-  const surface = skia.sk_surface_new_raster(
-      @ptrCast([*]const skia.sk_imageinfo_t, &imageinfo),
-      0,
-      null
-  ) orelse return error.SkiaCreateSurfaceFailed;
+  const rendertarget = skia.gr_backendrendertarget_new_gl(
+    width,
+    height,
+    samples,
+    stencil_bits,
+    ptr(&gl_info),
+  );
+
+  const color_type = skia.sk_colortype_get_default_8888();
+  const colorspace = null;
+  const props = null;
+  const surface = skia.sk_surface_new_backend_render_target(
+    gr_context,
+    rendertarget,
+    @intToEnum(skia.gr_surfaceorigin_t, skia.BOTTOM_LEFT_GR_SURFACE_ORIGIN),
+    color_type,
+    colorspace,
+    props,
+  ) orelse return error.SkiaCreateSurfaceError;
   defer skia.sk_surface_unref(surface);
+
   const canvas = skia.sk_surface_get_canvas(surface)
       orelse return error.SkiaSurfaceFailed;
-  try draw(canvas);
 
-  try writePng("out.png", surface);
+  while (glfw.glfwWindowShouldClose(window) == 0) {
+    skia.sk_canvas_clear(canvas, 0xffffffff);
+    try draw(canvas);
+
+    skia.sk_canvas_flush(canvas);
+    glfw.glfwSwapBuffers(window);
+
+    glfw.glfwWaitEvents();
+  }
 }
 
 fn draw(canvas: *skia.sk_canvas_t) !void {
@@ -55,7 +115,7 @@ fn draw(canvas: *skia.sk_canvas_t) !void {
     .right = 540,
     .bottom = 380,
   };
-  skia.sk_canvas_draw_rect(canvas, @ptrCast([*]const skia.sk_rect_t, &rect), fill);
+  skia.sk_canvas_draw_rect(canvas, ptr(&rect), fill);
 
   const stroke = skia.sk_paint_new() orelse return error.SkiaNewPaintFailed;
   defer skia.sk_paint_delete(stroke);
@@ -79,7 +139,7 @@ fn draw(canvas: *skia.sk_canvas_t) !void {
     .right = 520,
     .bottom = 360,
   };
-  skia.sk_canvas_draw_oval(canvas, @ptrCast([*]const skia.sk_rect_t, &rect2), fill);
+  skia.sk_canvas_draw_oval(canvas, ptr(&rect2), fill);
 }
 
 fn writePng(path: []const u8, surface: *skia.sk_surface_t) !void {
