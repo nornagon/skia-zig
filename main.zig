@@ -34,6 +34,10 @@ fn ptr(p: var) t: {
     return @ptrCast(ReturnType, p);
 }
 
+extern fn keyEvent(window: ?*glfw.GLFWwindow, key: c_int, scancode: c_int, action: c_int, mods: c_int) void {
+  std.debug.warn("Key event: key={} scancode={} action={} mods={}\n", key, scancode, action, mods);
+}
+
 pub fn main() !void {
   if (glfw.glfwInit() == 0) return error.GlfwInitFailed;
   defer glfw.glfwTerminate();
@@ -46,6 +50,8 @@ pub fn main() !void {
   glfw.glfwMakeContextCurrent(window);
   glfw.glfwSwapInterval(1);
 
+  _ = glfw.glfwSetKeyCallback(window, keyEvent);
+
   var width: c_int = 0;
   var height: c_int = 0;
   glfw.glfwGetFramebufferSize(window, ptr(&width), ptr(&height));
@@ -53,7 +59,7 @@ pub fn main() !void {
   const gr_glinterface = skia.gr_glinterface_create_native_interface();
   defer skia.gr_glinterface_unref(gr_glinterface);
   const gr_context = skia.gr_context_make_gl(gr_glinterface)
-      orelse return error.SkiaGrContextError;
+      orelse return error.SkiaCreateContextFailed;
   defer skia.gr_context_unref(gr_context);
 
   var fbo: i32 = 0;
@@ -85,11 +91,10 @@ pub fn main() !void {
     color_type,
     colorspace,
     props,
-  ) orelse return error.SkiaCreateSurfaceError;
+  ) orelse return error.SkiaCreateSurfaceFailed;
   defer skia.sk_surface_unref(surface);
 
-  const canvas = skia.sk_surface_get_canvas(surface)
-      orelse return error.SkiaSurfaceFailed;
+  const canvas = skia.sk_surface_get_canvas(surface) orelse unreachable;
 
   while (glfw.glfwWindowShouldClose(window) == 0) {
     skia.sk_canvas_clear(canvas, 0xffffffff);
@@ -103,7 +108,7 @@ pub fn main() !void {
 }
 
 fn draw(canvas: *skia.sk_canvas_t) !void {
-  const fill = skia.sk_paint_new() orelse return error.SkiaNewPaintFailed;
+  const fill = skia.sk_paint_new() orelse return error.SkiaCreatePaintFailed;
   defer skia.sk_paint_delete(fill);
   skia.sk_paint_set_color(fill, 0xff0000ff);
   skia.sk_canvas_draw_paint(canvas, fill);
@@ -117,14 +122,14 @@ fn draw(canvas: *skia.sk_canvas_t) !void {
   };
   skia.sk_canvas_draw_rect(canvas, ptr(&rect), fill);
 
-  const stroke = skia.sk_paint_new() orelse return error.SkiaNewPaintFailed;
+  const stroke = skia.sk_paint_new() orelse return error.SkiaCreatePaintFailed;
   defer skia.sk_paint_delete(stroke);
   skia.sk_paint_set_color(stroke, 0xffff0000);
   skia.sk_paint_set_antialias(stroke, true);
   skia.sk_paint_set_style(stroke, @intToEnum(skia.sk_paint_style_t, skia.STROKE_SK_PAINT_STYLE));
   skia.sk_paint_set_stroke_width(stroke, 5.0);
 
-  const path = skia.sk_path_new() orelse return error.SkiaNewPathFailed;
+  const path = skia.sk_path_new() orelse return error.SkiaCreatePathFailed;
   defer skia.sk_path_delete(path);
   skia.sk_path_move_to(path, 50.0, 50.0);
   skia.sk_path_line_to(path, 590.0, 50.0);
